@@ -5,7 +5,6 @@ import itertools
 from ._logger import create_logger
 
 DTStart = '/'
-DTStop = '\r'
 
 
 class DTInstructionPacket(object):
@@ -29,8 +28,7 @@ class DTInstructionPacket(object):
             commands += dtcommand.to_string()
         return bytearray(itertools.chain(DTStart.encode(),
                                          self.address,
-                                         commands,
-                                         DTStop.encode(), ))
+                                         commands ))
 
     def to_string(self):
         return bytes(self.to_array())

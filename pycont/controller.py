@@ -14,6 +14,7 @@ import json
 import serial
 import threading
 
+from pycont.dtprotocol import DTInstructionPacket
 from ._logger import create_logger
 
 from . import pump_protocol
@@ -82,12 +83,12 @@ MAX_REPEAT_WRITE_AND_READ = 10
 MAX_REPEAT_OPERATION = 10
 
 
-class PumpIO(object):
+class PumpIO(LabDevice):
     """
     This class deals with the pump I/O instructions.
 
     Args:
-        port (int): The port number
+        port (str): Either an IP address:port or a valid serial port (COM<n> on Win, /dev/XXX on unix)
 
         baudrate (int): Baudrate of the communication, default set to DEFAULT_IO_BAUDRATE(9600)
 
@@ -97,14 +98,30 @@ class PumpIO(object):
     def __init__(self, port, baudrate=DEFAULT_IO_BAUDRATE, timeout=DEFAULT_IO_TIMEOUT):
         self.logger = create_logger(self.__class__.__name__)
 
-        self.lock = threading.Lock()
+        # Handles both TCP-IP and Serial connections
+        if ':' in port:
+            # TCP-IP
+            parameters = {
+                "baudrate": baudrate,
+                "transmit_timeout": timeout,
+                "receive_timeout": timeout,
+                "port": port
+            }
+            super().__init__(connection_mode="tcpip", connection_parameters=parameters)
+        else:
+            # Serial
+            address, tcipip_port = port.split(':')
+            parameters = {
+                "baudrate": baudrate,
+                "transmit_timeout": timeout,
+                "receive_timeout": timeout,
+                "address": address,
+                "port": tcipip_port
+            }
+            super().__init__(connection_mode="serial", connection_parameters=parameters)
 
-        self.port = port
-        self.baudrate = baudrate
-        self.timeout = timeout
-        self._serial = None
-
-        self.open(port, baudrate, timeout)
+        self.command_terminator = "\r"
+        self.reply_terminator = ""
 
     @classmethod
     def from_config(cls, io_config):
@@ -151,92 +168,7 @@ class PumpIO(object):
         with open(io_configfile) as f:
             return cls.from_config(json.load(f))
 
-    def __del__(self):
-        """
-        Closes the communication via close()
-        """
-        self.close()
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        """
-        Closes the communication via close()
-
-        Args:
-            exc_type (Exception): The type of Exception.
-
-            exc_value (Exception): The value associated with the Exception.
-
-            traceback (str): Location of where the exception occurred.
-
-        """
-        self.close()
-
-    def open(self, port, baudrate=DEFAULT_IO_BAUDRATE, timeout=DEFAULT_IO_TIMEOUT):
-        """
-        Opens a communication with the hardware.
-
-        Args:
-            port (int): The port number on which the communication will take place.
-
-            baudrate (int): The baudrate of the communication, default set to DEFAULT_IO_BAUDRATE(9600).
-
-            timeout (int): The timeout of the communication, default set to DEFAULT_IO_TIMEOUT(1).
-
-        """
-        self._serial = serial.Serial(port, baudrate, timeout=timeout)
-        self.logger.debug("Opening port '%s'", self.port,
-                          extra={'port': self.port,
-                                 'baudrate': self.baudrate,
-                                 'timeout': self.timeout})
-
-    def close(self):
-        """
-        Closes the communication with the hardware.
-        """
-        self._serial.close()
-        self.logger.debug("Closing port '%s'", self.port,
-                          extra={'port': self.port,
-                                 'baudrate': self.baudrate,
-                                 'timeout': self.timeout})
-
-    def flushInput(self):
-        """
-        Flushes the input buffer of the serial communication.
-        """
-        self._serial.flushInput()
-
-    def write(self, packet):
-        """
-        Writes a packet along the serial communication.
-
-        Args:
-            packet (DTInstructionPacket): The packet to send along the serial communication.
-
-        .. note:: Unsure if this is the correct packet type (GAK).
-
-        """
-        str_to_send = packet.to_string()
-        self.logger.debug("Sending {}".format(str_to_send))
-        self._serial.write(str_to_send)
-
-    def readline(self):
-        """
-        Reads a line from the serial communication.
-
-        Raises:
-            PumpIOTimeOutError: If the response time is greater than the timeout threshold.
-
-        """
-        msg = self._serial.readline()
-        if msg:
-            self.logger.debug("Received {}".format(msg))
-            return msg
-        else:
-            self.logger.debug("Readline timeout!")
-            raise PumpIOTimeOutError
-
-    ##
-    def write_and_readline(self, packet):
+    def write_and_readline(self, packet: DTInstructionPacket):
         """
         Writes a packet along the serial communication and waits for a response.
 
@@ -251,23 +183,8 @@ class PumpIO(object):
         Raises:
             PumpIOTimeOutError: If the response time is greater than the timeout threshold.
         """
-        self.lock.acquire()
-        self.flushInput()
-        self.write(packet)
-        try:
-            response = self.readline()
-            self.lock.release()
-            return response
-        except PumpIOTimeOutError as err:
-            self.lock.release()
-            raise err
-
-
-class PumpIOTimeOutError(Exception):
-    """
-    Exception for when the response time is greater than the timeout threshold.
-    """
-    pass
+        self.send_message(packet.to_string())
+        return self.receive_reply()
 
 
 class ControllerRepeatedError(Exception):
