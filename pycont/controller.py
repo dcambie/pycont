@@ -18,6 +18,8 @@ from ._logger import create_logger
 
 from . import pump_protocol
 
+from SerialLabware.controllers import LabDevice
+
 #: Represents the Broadcast of the C3000
 C3000Broadcast = '_'
 
