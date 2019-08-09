@@ -5,6 +5,7 @@ import itertools
 from ._logger import create_logger
 
 DTStart = '/'
+DTStop = '\r'
 
 
 class DTInstructionPacket(object):
@@ -28,10 +29,11 @@ class DTInstructionPacket(object):
             commands += dtcommand.to_string()
         return bytearray(itertools.chain(DTStart.encode(),
                                          self.address,
-                                         commands ))
+                                         commands,
+                                         DTStop.encode()))
 
     def to_string(self):
-        return bytes(self.to_array())
+        return bytes(self.to_array()).decode("utf-8")
 
 
 class DTCommand(object):
@@ -79,14 +81,10 @@ class DTStatus(object):
 
     def __init__(self, response):
         self.logger = create_logger(self.__class__.__name__)
-        try:
-            self.response = response.decode()
-        except UnicodeDecodeError:
-            self.logger.debug('Could not decode  {}'.format(response))
-            self.response = None
+        self.response = response
 
     def decode(self):
-        if self.response is not None:
+        if self.response:
             info = self.response.rstrip().rstrip('\x03').lstrip(DTStart)
             address = info[0]
             # try:

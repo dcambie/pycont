@@ -101,27 +101,27 @@ class PumpIO(LabDevice):
         # Handles both TCP-IP and Serial connections
         if ':' in port:
             # TCP-IP
-            parameters = {
-                "baudrate": baudrate,
-                "transmit_timeout": timeout,
-                "receive_timeout": timeout,
-                "port": port
-            }
-            super().__init__(connection_mode="tcpip", connection_parameters=parameters)
-        else:
-            # Serial
             address, tcipip_port = port.split(':')
             parameters = {
                 "baudrate": baudrate,
-                "transmit_timeout": timeout,
+                "transmit_timeout": 0,
                 "receive_timeout": timeout,
                 "address": address,
                 "port": tcipip_port
             }
+            super().__init__(connection_mode="tcpip", connection_parameters=parameters)
+        else:
+            # Serial
+            parameters = {
+                "baudrate": baudrate,
+                "transmit_timeout": 0,
+                "receive_timeout": timeout,
+                "port": port
+            }
             super().__init__(connection_mode="serial", connection_parameters=parameters)
 
         self.command_terminator = "\r"
-        self.reply_terminator = ""
+        self.reply_terminator = "\r"
 
     @classmethod
     def from_config(cls, io_config):
@@ -168,6 +168,15 @@ class PumpIO(LabDevice):
         with open(io_configfile) as f:
             return cls.from_config(json.load(f))
 
+    def initialise_device(self):
+        raise NotImplementedError
+
+    def is_connected(self):
+        raise NotImplementedError
+
+    def is_ready(self):
+        raise NotImplementedError
+
     def write_and_readline(self, packet: DTInstructionPacket):
         """
         Writes a packet along the serial communication and waits for a response.
@@ -183,8 +192,15 @@ class PumpIO(LabDevice):
         Raises:
             PumpIOTimeOutError: If the response time is greater than the timeout threshold.
         """
-        self.send_message(packet.to_string())
-        return self.receive_reply()
+        self.send_message(packet.to_string(), prepare=False)
+        return self.receive_reply(parse=True)
+
+
+class PumpIOTimeOutError(Exception):
+    """
+    Exception for when the response time is greater than the timeout threshold.
+    """
+    pass
 
 
 class ControllerRepeatedError(Exception):
@@ -325,6 +341,7 @@ class C3000Controller(object):
             try:
                 response = self._io.write_and_readline(packet)
                 decoded_response = self._protocol.decode_packet(response)
+                self.logger.debug(f"Reply decoded to: {response}")
                 if decoded_response is not None:
                     return decoded_response
                 else:
