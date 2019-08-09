@@ -41,9 +41,9 @@ class DTCommand(object):
     """ This class is used to represent a DTcommand.
 
         Args:
-            command (str): The command to be sent
+            command: The command to be sent
 
-            operand (str): The parameter of the command, None by default
+            operand: The parameter of the command, None by default
 
         (for more details see http://www.tricontinent.com/products/cseries-syringe-pumps)
         """
@@ -71,7 +71,7 @@ class DTCommand(object):
 
 class DTStatus(object):
 
-    """ This class is used to represent a DTstatus, the response of the device from a command.
+    """ This class is used to represent a DTStatus, the response of the device from a command.
 
         Args:
             response (str): The response from the device
@@ -87,11 +87,8 @@ class DTStatus(object):
         if self.response:
             info = self.response.rstrip().rstrip('\x03').lstrip(DTStart)
             address = info[0]
-            # try:
             status = info[1]
             data = info[2:]
-            # except IndexError:
-            #     return None
             return address, status, data
         else:
             return None

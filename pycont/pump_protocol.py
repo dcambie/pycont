@@ -312,7 +312,7 @@ class C3000Protocol(object):
         dtcommand = dtprotocol.DTCommand(CMD_EEPROM_CONFIG, str(operand_value))
         return self.forge_packet(dtcommand, execute=False)
 
-    def forge_eeprom_lowlevel_config_packet(self, sub_command=20, operand_value="pycont1"):
+    def forge_eeprom_lowlevel_config_packet(self, sub_command=20, operand_value="pycont2"):
         """
         Creates a packet for accessing the EEPROM configuration of the device.
 
