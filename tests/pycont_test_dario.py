@@ -28,10 +28,12 @@ controller = pycont.controller.MultiPumpController.from_configfile(SETUP_CONFIG_
 # input("Reboot pump and press enter to continue...")
 
 
-# controller.smart_initialize()
+controller.smart_initialize()
 # controller.pumps['acetone'].initialize()
 # print(controller.pumps['acetone'].get_current_valve_config())
 # print(controller.pumps['acetone'].get_eeprom_config())
+controller.pumps['acetone'].go_to_volume(0)
+controller.pumps['acetone'].wait_until_idle()
 controller.pumps['acetone'].go_to_max_volume()
 # Set max motor speed to 90%
 # controller.pumps['acetone'].set_eeprom_lowlevel_config(2, 75)
