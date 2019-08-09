@@ -116,7 +116,8 @@ class PumpIO(LabDevice):
                 "baudrate": baudrate,
                 "transmit_timeout": 0,
                 "receive_timeout": timeout,
-                "port": port
+                "port": port,
+                "command_delay": 0.05
             }
             super().__init__(connection_mode="serial", connection_parameters=parameters)
 
