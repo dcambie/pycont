@@ -54,7 +54,7 @@ VALVE_6WAY_LIST = ['1', '2', '3', '4', '5', '6']
 
 #: Microstep Mode 0
 MICRO_STEP_MODE_0 = 0
-#:Microstep Mode 2
+#: Microstep Mode 2
 MICRO_STEP_MODE_2 = 2
 
 #: Number of steps in Microstep Mode 0
@@ -100,6 +100,7 @@ class PumpIO(object):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
+        self._serial = None
 
         self.open(port, baudrate, timeout)
 
@@ -163,7 +164,7 @@ class PumpIO(object):
 
             exc_value (Exception): The value associated with the Exception.
 
-            traceback (str): Location of where the exception occured.
+            traceback (str): Location of where the exception occurred.
 
         """
         self.close()
@@ -318,7 +319,7 @@ class C3000Controller(object):
 
         address (str): Address of the controller.
 
-        total_volume (int): Total volume of the pump.
+        total_volume (float): Total volume of the pump.
 
         micro_step_mode (int): The mode which the microstep will use, default set to MICRO_STEP_MODE_2 (2)
 
@@ -504,7 +505,7 @@ class C3000Controller(object):
 
     def smart_initialize(self, valve_position=None, secure=True):
         """
-        Initialises the pump and sets all pump parammeters.
+        Initialises the pump and sets all pump parameters.
 
         Args:
             valve_position (int): Position of the valve, default set None.
@@ -733,8 +734,8 @@ class C3000Controller(object):
             if secure is False:
                 return True
 
-        self.logger.debug("[PUMP {}] Too many failed attempts in set_top_velocity!".format(self.name))
-        raise ControllerRepeatedError('Repeated Error from pump {}'.format(self.name))
+        self.logger.debug(f"[PUMP {self.name}] Too many failed attempts in set_top_velocity!")
+        raise ControllerRepeatedError(f'Repeated Error from pump {self.name}')
 
     def get_top_velocity(self):
         """
@@ -943,11 +944,11 @@ class C3000Controller(object):
             speed_out (int): The speed of transfer from the valve, default set to None.
 
         """
-        volume_transfered = min(volume_in_ml, self.remaining_volume)
-        self.pump(volume_transfered, from_valve, speed_in=speed_in, wait=True)
-        self.deliver(volume_transfered, to_valve, speed_out=speed_out, wait=True)
+        volume_transferred = min(volume_in_ml, self.remaining_volume)
+        self.pump(volume_transferred, from_valve, speed_in=speed_in, wait=True)
+        self.deliver(volume_transferred, to_valve, speed_out=speed_out, wait=True)
 
-        remaining_volume_to_transfer = volume_in_ml - volume_transfered
+        remaining_volume_to_transfer = volume_in_ml - volume_transferred
         if remaining_volume_to_transfer > 0:
             self.transfer(remaining_volume_to_transfer, from_valve, to_valve, speed_in, speed_out)
 
@@ -977,9 +978,9 @@ class C3000Controller(object):
 
             speed (int): The speed of movement, default set to None.
 
-            wait (bool): Waits for the pump to be idle, defualt set to False.
+            wait (bool): Waits for the pump to be idle, default set to False.
 
-            secure (bool): Ensures that everything is corect, default set to True.
+            secure (bool): Ensures that everything is correct, default set to True.
 
         Returns:
             True (bool): The supplied volume is valid.
@@ -1022,7 +1023,7 @@ class C3000Controller(object):
         """
         self.go_to_volume(self.total_volume, speed=speed, wait=wait)
 
-    def get_raw_valve_postion(self):
+    def get_raw_valve_position(self):
         """
         Gets the raw value of the valve's position.
 
@@ -1039,7 +1040,7 @@ class C3000Controller(object):
         Gets the position of the valve.
 
         Args:
-            max_repeat (int): The maximum number of times to repeat an operation, default set to MAX_REPEAT_OPERATION (10).
+            max_repeat (int): Maximum number of times to repeat an operation, default set to MAX_REPEAT_OPERATION (10).
 
         Returns:
             (chr): The position of the valve.
@@ -1049,7 +1050,7 @@ class C3000Controller(object):
 
         """
         for i in range(max_repeat):
-            raw_valve_position = self.get_raw_valve_postion()
+            raw_valve_position = self.get_raw_valve_position()
             if raw_valve_position == 'i':
                 return VALVE_INPUT
             elif raw_valve_position == 'o':
@@ -1060,8 +1061,8 @@ class C3000Controller(object):
                 return VALVE_EXTRA
             elif raw_valve_position in VALVE_6WAY_LIST:
                 return raw_valve_position
-            self.logger.debug("Valve position request failed attempt {}/{}, {} is unknown".format(i + 1, max_repeat, raw_valve_position))
-        raise ValueError('Valve position received was {}. It is unknown'.format(raw_valve_position))
+            self.logger.debug(f"Valve position request failed attempt {i+1}/{max_repeat}, {raw_valve_position} unknown")
+        raise ValueError(f'Valve position received was {raw_valve_position}. It is unknown')
 
     def set_valve_position(self, valve_position, max_repeat=MAX_REPEAT_OPERATION, secure=True):
         """
@@ -1224,7 +1225,7 @@ class C3000Controller(object):
 
 class MultiPumpController(object):
     """
-    This class deals with controlling multiple pumps at a time.
+    This class deals with controlling multiple pumps on one or more hubs at a time.
 
     Args:
         setup_config (Dict): The configuration of the setup.
@@ -1232,23 +1233,27 @@ class MultiPumpController(object):
     """
     def __init__(self, setup_config):
         self.logger = create_logger(self.__class__.__name__)
-
-        self._io = PumpIO.from_config(setup_config['io'])
-
-        if 'default' in setup_config:
-            self.default_config = setup_config['default']
-        else:
-            self.default_config = {}
-
-        if 'groups' in setup_config:
-            self.groups = setup_config['groups']
-        else:
-            self.groups = {}
-
         self.pumps = {}
-        for pump_name, pump_config in list(setup_config['pumps'].items()):
-            defaulted_pump_config = self.default_pump_config(pump_config)
-            self.pumps[pump_name] = C3000Controller.from_config(self._io, pump_name, defaulted_pump_config)
+        self._io = []
+
+        # Sets groups and default configs if provided in the config dictionary
+        self.groups = setup_config['groups'] if 'groups' in setup_config else {}
+        self.default_config = setup_config['default'] if 'default' in setup_config else {}
+
+        if "hubs" in setup_config:  # This implements the "new" behaviour with multiple hubs
+            for hub_config in setup_config["hubs"]:
+                # Each hub has its own I/O config. Create a PumpIO object per each hub and reuse it with -1 after append
+                self._io.append(PumpIO.from_config(hub_config['io']))
+                for pump_name, pump_config in list(hub_config['pumps'].items()):
+                    full_pump_config = self.default_pump_config(pump_config)
+                    self.pumps[pump_name] = C3000Controller.from_config(self._io[-1], pump_name, full_pump_config)
+        else:  # This implements the "old" behaviour with one hub per object instance / json file
+            self._io = PumpIO.from_config(setup_config['io'])
+            for pump_name, pump_config in list(setup_config['pumps'].items()):
+                full_pump_config = self.default_pump_config(pump_config)
+                self.pumps[pump_name] = C3000Controller.from_config(self._io, pump_name, full_pump_config)
+
+        # Adds pumps as attributes
         self.set_pumps_as_attributes()
 
     @classmethod
@@ -1268,23 +1273,26 @@ class MultiPumpController(object):
         with open(setup_configfile) as f:
             return cls(json.load(f))
 
-    def default_pump_config(self, pump_config):
+    def default_pump_config(self, pump_specific_config):
         """
         Creates a default pump configuration.
 
         Args:
-            pump_config (Dict): Dictionary containing the pump configuration.
+            pump_specific_config (Dict): Dictionary containing the pump configuration.
 
         Returns:
-            defaulted_pump_config (Dict): A new default pump configuration mirroring that of pump_config.
+            combined_pump_config (Dict): A new default pump configuration mirroring that of pump_config.
 
         """
-        defaulted_pump_config = dict(self.default_config)  # make a copy
+        # Makes a copy of the default values (this is needed because we are going to merge default with pump settings)
+        combined_pump_config = dict(self.default_config)
 
-        for k, v in list(pump_config.items()):
-            defaulted_pump_config[k] = v
+        # Adds pump specific settings
+        for k, v in list(pump_specific_config.items()):
+            combined_pump_config[k] = v
 
-        return defaulted_pump_config
+        # Returns the combination of default settings and pump specific settings
+        return combined_pump_config
 
     def set_pumps_as_attributes(self):
         """
@@ -1292,8 +1300,8 @@ class MultiPumpController(object):
         """
         for pump_name, pump in list(self.pumps.items()):
             if hasattr(self, pump_name):
-                self.logger.warning("Pump named {pump_name} is already a reserved attribute, please change name or do not use"
-                                    "this pump in attribute mode, rather use pumps[{pump_name}]".format(pump_name=pump_name))
+                self.logger.warning(f"Pump named {pump_name} is a reserved attribute, please change name or do not use "
+                                    f"this pump in attribute mode, rather use pumps['{pump_name}'']")
             else:
                 setattr(self, pump_name, pump)
 
@@ -1310,7 +1318,10 @@ class MultiPumpController(object):
         """
         pumps = []
         for pump_name in pump_names:
-            pumps.append(self.pumps[pump_name])
+            try:
+                pumps.append(self.pumps[pump_name])
+            except KeyError:
+                pass
         return pumps
 
     def get_all_pumps(self):
@@ -1321,7 +1332,6 @@ class MultiPumpController(object):
             pumps (List): A list of the all the pump objects in the Controller.
 
         """
-
         return self.pumps
 
     def get_pumps_in_group(self, group_name):
@@ -1347,21 +1357,21 @@ class MultiPumpController(object):
 
     def apply_command_to_pumps(self, pump_names, command, *args, **kwargs):
         """
-        Applies a given command to the pumps.
+                Applies a given command to the pumps.
 
-        Args:
-            pump_names (List): List containing the pump names.
+                Args:
+                    pump_names (List): List containing the pump names.
 
-            command (str): The command to apply.
+                    command (str): The command to apply.
 
-            *args: Variable length argument list.
+                    *args: Variable length argument list.
 
-            **kwargs: Arbitrary keyword arguements.
+                    **kwargs: Arbitrary keyword arguments.
 
-        Returns:
-            returns (Dict): Dictionary of the functions.
+                Returns:
+                    returns (Dict): Dictionary of the functions.
 
-        """
+                """
         returns = {}
         for pump_name in pump_names:
             func = getattr(self.pumps[pump_name], command)
@@ -1397,7 +1407,7 @@ class MultiPumpController(object):
 
             *args: Variable length argument list.
 
-            **kwargs: Arbitrary keyword arguements.
+            **kwargs: Arbitrary keyword arguments.
 
         Returns:
             returns (Dict) Dictionary of the functions.
@@ -1415,7 +1425,7 @@ class MultiPumpController(object):
             False (bool): The pumps have not been initialised.
 
         """
-        for _, pump in list(self.pumps.items()):
+        for pump in list(self.pumps.values()):
             if not pump.is_initialized():
                 return False
         return True
@@ -1479,7 +1489,7 @@ class MultiPumpController(object):
             False (bool): The pumps are not idle.
 
         """
-        for _, pump in list(self.pumps.items()):
+        for pump in list(self.pumps.values()):
             if not pump.is_idle():
                 return False
         return True
@@ -1499,8 +1509,6 @@ class MultiPumpController(object):
     def pump(self, pump_names, volume_in_ml, from_valve=None, speed_in=None, wait=False, secure=True):
         """
         Pumps the desired volume.
-
-        .. note:: Reimplemented as MultiPump so it is really synchronous
 
         Args:
             pump_names (List): The name of the pumps.
@@ -1533,8 +1541,6 @@ class MultiPumpController(object):
         """
         Delivers the desired volume.
 
-        .. note:: Reimplemented as MultiPump so it is really synchronous
-
         Args:
             pump_names (List): The name of the pumps.
 
@@ -1566,12 +1572,10 @@ class MultiPumpController(object):
         """
         Transfers the desired volume between pumps.
 
-        .. note:: Reimplemented as MultiPump so it is really synchronous, needed
-
         Args:
             pump_names (List): The name of the pumps.
 
-            volume_in_ml (float): The volume to be transfered.
+            volume_in_ml (float): The volume to be transferred.
 
             from_valve (chr): The valve to transfer from.
 
@@ -1584,14 +1588,14 @@ class MultiPumpController(object):
             secure (bool): Ensures that everything is correct, default set to False.
 
         """
-        volume_transfered = 1000000  # some big number 1000L is more than any decent person will try
+        volume_transferred = float('inf')  # Temporary value for the first cycle only, see below
         for pump in self.get_pumps(pump_names):
-            candidate_volume = min(volume_in_ml, pump.remaining_volume)
-            volume_transfered = min(candidate_volume, volume_transfered)
+            candidate_volume = min(volume_in_ml, pump.remaining_volume)  # Smallest target and remaining is candidate
+            volume_transferred = min(candidate_volume, volume_transferred)  # Transferred is global minimum
 
-        self.pump(pump_names, volume_transfered, from_valve, speed_in=speed_in, wait=True, secure=secure)
-        self.deliver(pump_names, volume_transfered, to_valve, speed_out=speed_out, wait=True, secure=secure)
+        self.pump(pump_names, volume_transferred, from_valve, speed_in=speed_in, wait=True, secure=secure)
+        self.deliver(pump_names, volume_transferred, to_valve, speed_out=speed_out, wait=True, secure=secure)
 
-        remaining_volume_to_transfer = volume_in_ml - volume_transfered
+        remaining_volume_to_transfer = volume_in_ml - volume_transferred
         if remaining_volume_to_transfer > 0:
             self.transfer(pump_names, remaining_volume_to_transfer, from_valve, to_valve, speed_in, speed_out)
