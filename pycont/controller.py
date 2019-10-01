@@ -480,24 +480,10 @@ class C3000Controller(object):
             self.initialize_no_valve()
 
             if self.is_initialized():
-                self.check_jumper_position()
                 return True
 
         self.logger.debug("Too many failed attempts to initialize!")
         raise ControllerRepeatedError('Repeated Error from pump {}'.format(self.name))
-
-    def check_jumper_position(self):
-        """
-        After initialization verifies if pump settings are sane
-        """
-
-        # Ensure the absence of the jumper for 120 deg operation (3-way Y) when a 4-way config is set
-        four_way_valves = ("4-WAY dist", "4-WAY nondist")
-        if self.get_current_valve_config() in four_way_valves:
-            # Read jumper position
-            (_, _, jumper_position) = self.write_and_read_from_pump(self._protocol.forge_report_jumper_packet())
-            if int(jumper_position) == 3:
-                raise ControllerRepeatedError("Remove jumper J2-5 from pump {}!".format(self.name))
 
     def initialize_valve_right(self, operand_value=0, wait=True):
         """
@@ -540,7 +526,7 @@ class C3000Controller(object):
 
         if operand_value is None:
             if self.total_volume < 1:
-                operand_value = 1 # Half plunger stall force for syringes with volume of 500 uL or less
+                operand_value = 1  # Half plunger stall force for syringes with volume of 500 uL or less
             else:
                 operand_value = 0
 
@@ -987,6 +973,7 @@ class C3000Controller(object):
             ValueError: The valve position is not valid/unknown.
 
         """
+        raw_valve_position = None
         for i in range(max_repeat):
             raw_valve_position = self.get_raw_valve_position()
             if raw_valve_position == 'i':
@@ -1293,23 +1280,55 @@ class MultiPumpController(object):
             pumps.append(self.pumps[pump_name])
         return pumps
 
+    def get_all_pumps(self):
+        """
+        Obtains a list of all pumps.
+
+        Returns:
+            pumps (List): A list of the all the pump objects in the Controller.
+
+        """
+
+        return self.pumps
+
+    def get_pumps_in_group(self, group_name):
+        """
+        Obtains a list of all pumps with group_name.
+
+        Args:
+            group_name (List): The group name
+
+        Returns:
+            pumps (List): A list of the pump objects in the group. None for non-existing groups.
+
+        """
+        pumps = []
+        try:
+            pump_list = self.groups[group_name]
+        except KeyError:
+            return None
+
+        for pump_name in pump_list:
+            pumps.append(self.pumps[pump_name])
+        return pumps
+
     def apply_command_to_pumps(self, pump_names, command, *args, **kwargs):
         """
-                Applies a given command to the pumps.
+        Applies a given command to the pumps.
 
-                Args:
-                    pump_names (List): List containing the pump names.
+        Args:
+            pump_names (List): List containing the pump names.
 
-                    command (str): The command to apply.
+            command (str): The command to apply.
 
-                    *args: Variable length argument list.
+            *args: Variable length argument list.
 
-                    **kwargs: Arbitrary keyword arguments.
+            **kwargs: Arbitrary keyword arguments.
 
-                Returns:
-                    returns (Dict): Dictionary of the functions.
+        Returns:
+            returns (Dict): Dictionary of the functions.
 
-                """
+        """
         returns = {}
         for pump_name in pump_names:
             func = getattr(self.pumps[pump_name], command)
@@ -1389,11 +1408,6 @@ class MultiPumpController(object):
         for pump in list(self.pumps.values()):
             if not pump.is_initialized():
                 pump.initialize_no_valve(wait=False)
-        self.wait_until_all_pumps_idle()
-
-        for pump in list(self.pumps.values()):
-            if not pump.is_initialized():
-                pump.check_jumper_position()
         self.wait_until_all_pumps_idle()
 
         self.apply_command_to_all_pumps('init_all_pump_parameters', secure=secure)
@@ -1537,3 +1551,59 @@ class MultiPumpController(object):
         remaining_volume_to_transfer = volume_in_ml - volume_transferred
         if remaining_volume_to_transfer > 0:
             self.transfer(pump_names, remaining_volume_to_transfer, from_valve, to_valve, speed_in, speed_out)
+
+    def parallel_transfer(self, pumps_and_volumes_dict: dict, from_valve: str, to_valve: str,
+                          speed_in=None, speed_out=None, secure=True, wait=False):
+        """
+        Transfers the desired volume between pumps.
+
+        Args:
+            pumps_and_volumes_dict (dict): The names and volumes to be pumped for each pump.
+
+            from_valve (chr): The valve to transfer from.
+
+            to_valve (chr): the valve to transfer to.
+
+            speed_in (int): The speed at which to receive transfer, default set to None.
+
+            speed_out (int): The speed at which to transfer, default set to None
+
+            secure (bool): Ensures that everything is correct, default set to False.
+
+        """
+
+        remaining_volume = {}
+        volume_to_transfer = {}
+
+        # Wait until all the pumps have pumped to start deliver
+        self.apply_command_to_pumps(list(pumps_and_volumes_dict.keys()), "wait_until_idle")
+
+        # Pump the target volume (or the maximum possible) for each pump
+        for pump_name, pump_target_volume in pumps_and_volumes_dict.items():
+            # Get pump
+            try:
+                pump = self.pumps[pump_name]
+            except KeyError:
+                self.logger.warning(f"Pump specified {pump_name} not found in the controller! (Available: {self.pumps}")
+                return False
+
+            # Find the volume to transfer (maximum pumpable or target, whatever is lower)
+            volume_to_transfer[pump_name] = min(pump_target_volume, pump.remaining_volume)
+            pump.pump(volume_in_ml=volume_to_transfer[pump_name], from_valve=from_valve, speed_in=speed_in, wait=False,
+                      secure=secure)
+
+            # Calculate remaining volume
+            remaining_volume[pump_name] = pump_target_volume - volume_to_transfer[pump_name]
+
+        # Wait until all the pumps have pumped to start deliver
+        self.apply_command_to_pumps(list(pumps_and_volumes_dict.keys()), "wait_until_idle")
+
+        for pump_name, volume_to_deliver in volume_to_transfer.items():
+            pump = self.pumps[pump_name]  # This cannot fail otherwise it would have failed in pumping ;)
+            pump.deliver(volume_in_ml=volume_to_deliver, wait=False, to_valve=to_valve, speed_out=speed_out)
+
+        left_to_pump = {pump: volume for pump, volume in remaining_volume.items() if volume > 0}
+        if len(left_to_pump) > 0:
+            self.parallel_transfer(left_to_pump, from_valve, to_valve, speed_in, speed_out, secure)
+        elif wait is True:  # If no more pumping is needed wait if needed
+            self.apply_command_to_pumps(list(pumps_and_volumes_dict.keys()), "wait_until_idle")
