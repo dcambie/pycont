@@ -117,13 +117,13 @@ class PumpIO(LabDevice):
                 "transmit_timeout": 0,
                 "receive_timeout": timeout,
                 "port": port,
-                "command_delay": 0.05,
-                "reply_terminator": "\r"
+                "command_delay": 0.005,
+                "reply_terminator": "\n"
             }
             super().__init__(connection_mode="serial", connection_parameters=parameters)
 
         self.command_terminator = "\r"
-        self.reply_terminator = "\r"
+        self.reply_terminator = "\r\n"
 
     @classmethod
     def from_config(cls, io_config):
@@ -196,6 +196,10 @@ class PumpIO(LabDevice):
         """
         self.send_message(packet.to_string(), prepare=False)
         return self.receive_reply(parse=True)
+
+    def parse_reply(self, reply):
+        last_reply = reply.split("\r\n")[-1]
+        return last_reply
 
 
 class PumpIOTimeOutError(Exception):
