@@ -296,9 +296,9 @@ class C3000Controller(LabDevice):
     def speed_to_flowrate(self, speed: float) -> float:
         """ Converts linear pump speed (in increments/seconds) to a flow rate in ml/min """
         if self.micro_step_mode == MICRO_STEP_MODE_0:
-            return self.total_volume / 6000 * speed
+            return round(self.total_volume / 6000 * speed)
         elif self.micro_step_mode == MICRO_STEP_MODE_2:
-            return self.total_volume / 48000 * speed
+            return round(self.total_volume / 48000 * speed)
         else:
             raise ValueError("Invalid micro step settings")
 
@@ -451,15 +451,16 @@ class C3000Controller(LabDevice):
     def top_velocity(self):
         """ Gets the current top velocity. """
         top_velocity_packet = self._protocol.forge_report_peak_velocity_packet()
-        (_, top_velocity) = self.write_and_read_from_pump(top_velocity_packet)
-        return int(top_velocity)
+        (_, steps_per_sec) = self.write_and_read_from_pump(top_velocity_packet)
+        return self.speed_to_flowrate(steps_per_sec)
 
     @top_velocity.setter
     def top_velocity(self, velocity):
-        """ Sets the top velocity for the pump. """
-        if self.validate_top_velocity(velocity):
-            self.logger.debug(f"setting pump top velocity to {velocity}")
-            self.write_and_read_from_pump(self._protocol.forge_top_velocity_packet(velocity))
+        """ Sets the top velocity for the pump. NB. it takes flowrate in ml/min and not increments/sec"""
+        steps_per_sec = self.flowrate_to_speed(velocity)
+        if self.validate_top_velocity(steps_per_sec):
+            self.logger.debug(f"setting pump top velocity to {velocity} ml/min")
+            self.write_and_read_from_pump(self._protocol.forge_top_velocity_packet(steps_per_sec))
         else:
             self.logger.warning(f"pump top velocity was NOT set to {velocity} as such value is not valid")
 
@@ -495,7 +496,7 @@ class C3000Controller(LabDevice):
         steps = self.volume_to_step(volume_in_ml)
         return steps <= self.remaining_steps
 
-    def pump(self, volume_in_ml, from_valve=None, speed_in=None, wait=False, secure=True):
+    def pump(self, volume_in_ml, from_valve=None, flowrate_in=None, wait=False, secure=True):
         """
         Sends the signal to initiate the pump sequence.
 
@@ -504,7 +505,7 @@ class C3000Controller(LabDevice):
         Args:
             volume_in_ml (float): Volume to pump (in mL).
             from_valve (chr): Pump using the valve, default set to None.
-            speed_in (int): Speed to pump, default set to None.
+            flowrate_in (float): Speed to pump in ml/min, default set to None, i.e. pump default.
             wait (bool): Waits for the pump to be idle, default set to False.
             secure (bool): Ensures everything is correct, default set to True.
 
@@ -516,8 +517,8 @@ class C3000Controller(LabDevice):
         if self.is_volume_pumpable(volume_in_ml) is False:
             return False
 
-        if speed_in is not None:
-            self.top_velocity = speed_in
+        if flowrate_in is not None:
+            self.top_velocity = self.flowrate_to_speed(flowrate_in)
         else:
             self.ensure_default_top_velocity()
 
@@ -549,7 +550,7 @@ class C3000Controller(LabDevice):
         steps = self.volume_to_step(volume_in_ml)
         return steps <= self.current_steps
 
-    def deliver(self, volume_in_ml, to_valve=None, speed_out=None, wait=False, secure=True):
+    def deliver(self, volume_in_ml, to_valve=None, flowrate_out=None, wait=False, secure=True):
         """
         Delivers the volume payload.
 
@@ -560,7 +561,7 @@ class C3000Controller(LabDevice):
 
             to_valve (chr): The valve to deliver the payload to, default set to None.
 
-            speed_out (int): The speed of delivery, default set to None.
+            flowrate_out (float): The speed of delivery, default set to None.
 
             wait (bool): Waits for the pump to be idle, default set to False.
 
@@ -573,8 +574,8 @@ class C3000Controller(LabDevice):
         if volume_in_ml == 0:
             return True
 
-        if speed_out is not None:
-            self.top_velocity = speed_out
+        if flowrate_out is not None:
+            self.top_velocity = self.flowrate_to_speed(flowrate_out)
         else:
             self.ensure_default_top_velocity()
 
@@ -590,7 +591,7 @@ class C3000Controller(LabDevice):
 
         return True
 
-    def transfer(self, volume_in_ml, from_valve, to_valve, speed_in=None, speed_out=None):
+    def transfer(self, volume_in_ml, from_valve, to_valve, flowrate_in=None, flowrate_out=None):
         """
         Transfers the desired volume in mL.
 
@@ -601,18 +602,18 @@ class C3000Controller(LabDevice):
 
             to_valve (chr): The valve to transfer to.
 
-            speed_in (int): The speed of transfer to valve, default set to None.
+            flowrate_in (float): The speed of transfer to valve, default set to None.
 
-            speed_out (int): The speed of transfer from the valve, default set to None.
+            flowrate_out (float): The speed of transfer from the valve, default set to None.
 
         """
         volume_transferred = min(volume_in_ml, self.remaining_volume)
-        self.pump(volume_transferred, from_valve, speed_in=speed_in, wait=True)
-        self.deliver(volume_transferred, to_valve, speed_out=speed_out, wait=True)
+        self.pump(volume_transferred, from_valve, flowrate_in=flowrate_in, wait=True)
+        self.deliver(volume_transferred, to_valve, flowrate_out=flowrate_out, wait=True)
 
         remaining_volume_to_transfer = volume_in_ml - volume_transferred
         if remaining_volume_to_transfer > 0:
-            self.transfer(remaining_volume_to_transfer, from_valve, to_valve, speed_in, speed_out)
+            self.transfer(remaining_volume_to_transfer, from_valve, to_valve, flowrate_in, flowrate_out)
 
     def is_volume_valid(self, volume_in_ml) -> bool:
         """
@@ -629,15 +630,15 @@ class C3000Controller(LabDevice):
         """
         return 0 <= volume_in_ml <= self.total_volume
 
-    def go_to_volume(self, volume_in_ml, speed=None, wait=False):
+    def go_to_volume(self, volume_in_ml, flowrate=None, wait=False):
         """
         Moves the pump to the desired volume.
 
-        .. warning:: Change of speed will last after the scope of this function but will be reset to default each time speed == None
+        .. warning:: Change of speed will last after the scope of this function but will be reset to default each time flowrate == None
 
         Args:
             volume_in_ml (float): The supplied volume.
-            speed (int): The speed of movement, default set to None.
+            flowrate (float): The speed of movement, default set to None.
             wait (bool): Waits for the pump to be idle, default set to False.
 
         Returns:
@@ -648,8 +649,8 @@ class C3000Controller(LabDevice):
         if self.is_volume_valid(volume_in_ml) is False:
             return False
 
-        if speed is not None:
-            self.top_velocity = speed
+        if flowrate is not None:
+            self.top_velocity = self.flowrate_to_speed(flowrate)
         else:
             self.ensure_default_top_velocity()
 
@@ -662,12 +663,12 @@ class C3000Controller(LabDevice):
 
         return True
 
-    def go_to_max_volume(self, speed=None, wait=False):
+    def go_to_max_volume(self, flowrate=None, wait=False):
         """
         Moves the pump to the maximum volume.
 
         Args:
-            speed (int): The speed of movement, default set to None.
+            flowrate (float): The speed of movement, default set to None.
 
             wait (bool): Waits until the pump is idle, default set to False.
 
@@ -677,7 +678,7 @@ class C3000Controller(LabDevice):
             False (bool): The maximum volume is not valid.
 
         """
-        self.go_to_volume(self.total_volume, speed=speed, wait=wait)
+        self.go_to_volume(self.total_volume, flowrate=flowrate, wait=wait)
 
     def get_raw_valve_position(self):
         """
@@ -1112,7 +1113,7 @@ class MultiPumpController(object):
         """
         self.apply_command_to_all_pumps('terminate')
 
-    def pump(self, pump_names, volume_in_ml, from_valve=None, speed_in=None, wait=False, secure=True):
+    def pump(self, pump_names, volume_in_ml, from_valve=None, flowrate_in=None, wait=False, secure=True):
         """
         Pumps the desired volume.
 
@@ -1123,27 +1124,27 @@ class MultiPumpController(object):
 
             from_valve (chr): The valve to pump from.
 
-            speed_in (int): The speed at which to pump, default set to None.
+            flowrate_in (float): The speed at which to pump, default set to None.
 
             wait (bool): Waits for the pumps to be idle, default set to False.
 
             secure (bool): Ensures everything is correct, default set to False.
 
         """
-        if speed_in is not None:
-            self.apply_command_to_pumps(pump_names, 'set_top_velocity', speed_in, secure=secure)
+        if flowrate_in is not None:
+            self.apply_command_to_pumps(pump_names, 'set_top_velocity', flowrate_in, secure=secure)
         else:
             self.apply_command_to_pumps(pump_names, 'ensure_default_top_velocity', secure=secure)
 
         if from_valve is not None:
             self.apply_command_to_pumps(pump_names, 'set_valve_position', from_valve, secure=secure)
 
-        self.apply_command_to_pumps(pump_names, 'pump', volume_in_ml, speed_in=speed_in, wait=False)
+        self.apply_command_to_pumps(pump_names, 'pump', volume_in_ml, flowrate_in=flowrate_in, wait=False)
 
         if wait:
             self.apply_command_to_pumps(pump_names, 'wait_till_ready')
 
-    def deliver(self, pump_names, volume_in_ml, to_valve=None, speed_out=None, wait=False, secure=True):
+    def deliver(self, pump_names, volume_in_ml, to_valve=None, flowrate_out=None, wait=False, secure=True):
         """
         Delivers the desired volume.
 
@@ -1154,27 +1155,27 @@ class MultiPumpController(object):
 
             to_valve (chr): The valve to deliver to.
 
-            speed_out (int): The speed at which to deliver.
+            flowrate_out (float): The speed at which to deliver.
 
             wait (bool): Wait for the pumps to be idle ,default set to False.
 
             secure (bool): Ensures everything is correct, default set to True.
 
         """
-        if speed_out is not None:
-            self.apply_command_to_pumps(pump_names, 'set_top_velocity', speed_out, secure=secure)
+        if flowrate_out is not None:
+            self.apply_command_to_pumps(pump_names, 'set_top_velocity', flowrate_out, secure=secure)
         else:
             self.apply_command_to_pumps(pump_names, 'ensure_default_top_velocity', secure=secure)
 
         if to_valve is not None:
             self.apply_command_to_pumps(pump_names, 'set_valve_position', to_valve, secure=secure)
 
-        self.apply_command_to_pumps(pump_names, 'deliver', volume_in_ml, speed_out=speed_out, wait=False)
+        self.apply_command_to_pumps(pump_names, 'deliver', volume_in_ml, flowrate_out=flowrate_out, wait=False)
 
         if wait:
             self.apply_command_to_pumps(pump_names, 'wait_till_ready')
 
-    def transfer(self, pump_names, volume_in_ml, from_valve, to_valve, speed_in=None, speed_out=None, secure=True):
+    def transfer(self, pump_names, volume_in_ml, from_valve, to_valve, flowrate_in=None, flowrate_out=None, secure=True):
         """
         Transfers the desired volume between pumps.
 
@@ -1187,9 +1188,9 @@ class MultiPumpController(object):
 
             to_valve (chr): the valve to transfer to.
 
-            speed_in (int): The speed at which to receive transfer, default set to None.
+            flowrate_in (float): The speed at which to receive transfer, default set to None.
 
-            speed_out (int): The speed at which to transfer, default set to None
+            flowrate_out (float): The speed at which to transfer, default set to None
 
             secure (bool): Ensures that everything is correct, default set to False.
 
@@ -1199,9 +1200,9 @@ class MultiPumpController(object):
             candidate_volume = min(volume_in_ml, pump.remaining_volume)  # Smallest target and remaining is candidate
             volume_transferred = min(candidate_volume, volume_transferred)  # Transferred is global minimum
 
-        self.pump(pump_names, volume_transferred, from_valve, speed_in=speed_in, wait=True, secure=secure)
-        self.deliver(pump_names, volume_transferred, to_valve, speed_out=speed_out, wait=True, secure=secure)
+        self.pump(pump_names, volume_transferred, from_valve, flowrate_in=flowrate_in, wait=True, secure=secure)
+        self.deliver(pump_names, volume_transferred, to_valve, flowrate_out=flowrate_out, wait=True, secure=secure)
 
         remaining_volume_to_transfer = volume_in_ml - volume_transferred
         if remaining_volume_to_transfer > 0:
-            self.transfer(pump_names, remaining_volume_to_transfer, from_valve, to_valve, speed_in, speed_out)
+            self.transfer(pump_names, remaining_volume_to_transfer, from_valve, to_valve, flowrate_in, flowrate_out)
