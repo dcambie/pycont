@@ -354,7 +354,7 @@ class C3000Controller(LabDevice):
         """
         if not self.is_initialized():
             self.initialize(valve_position, secure=secure)
-        self.init_all_pump_parameters(secure=secure)
+        self.init_all_pump_parameters()
 
     def initialize(self, valve_position=None, secure=True):
         """
@@ -427,6 +427,12 @@ class C3000Controller(LabDevice):
         self._microstep_mode = mode
         self.write_and_read_from_pump(self._protocol.forge_microstep_mode_packet(mode))
 
+    def validate_flowrate(self, flowrate: float) -> bool:
+        """ Check if the provided flowrate value is within pump capabilities, given the syringe volume
+        :param flowrate: Target flow rate in ml/min
+        """
+        return self.validate_top_velocity(velocity=self.flowrate_to_speed(flowrate))
+
     def validate_top_velocity(self, velocity: float) -> bool:
         """ Checks if the provided value is a valid velocity in the current step mode
 
@@ -451,17 +457,26 @@ class C3000Controller(LabDevice):
         """ Gets the current top velocity. """
         top_velocity_packet = self._protocol.forge_report_peak_velocity_packet()
         (_, steps_per_sec) = self.write_and_read_from_pump(top_velocity_packet)
-        return self.speed_to_flowrate(steps_per_sec)
+        return int(steps_per_sec)
 
     @top_velocity.setter
-    def top_velocity(self, velocity):
-        """ Sets the top velocity for the pump. NB. it takes flowrate in ml/min and not increments/sec"""
-        steps_per_sec = self.flowrate_to_speed(velocity)
+    def top_velocity(self, steps_per_sec):
+        """ Sets the top velocity for the pump. NB. it takes flowrate in increments/sec"""
         if self.validate_top_velocity(steps_per_sec):
-            self.logger.debug(f"setting pump top velocity to {velocity} ml/min")
+            self.logger.debug(f"setting pump top velocity to {steps_per_sec} increments/sec")
             self.write_and_read_from_pump(self._protocol.forge_top_velocity_packet(steps_per_sec))
         else:
-            self.logger.warning(f"pump top velocity was NOT set to {velocity} as such value is not valid")
+            self.logger.warning(f"pump top velocity was NOT set to {steps_per_sec} as such value is not valid")
+
+    @property
+    def top_flowrate(self):
+        """ Gets the current top flowrate. """
+        return self.speed_to_flowrate(self.top_velocity)
+
+    @top_flowrate.setter
+    def top_flowrate(self, flowrate):
+        """ Sets the top flowrate for the pump. NB. it takes flowrate in ml/min! """
+        self.top_velocity = self.flowrate_to_speed(flowrate)
 
     @property
     def current_steps(self) -> int:
@@ -1131,7 +1146,7 @@ class MultiPumpController(object):
 
         """
         if flowrate_in is not None:
-            self.apply_command_to_pumps(pump_names, 'set_top_velocity', flowrate_in, secure=secure)
+            self.apply_command_to_pumps(pump_names, 'set_top_flowrate', flowrate_in, secure=secure)
         else:
             self.apply_command_to_pumps(pump_names, 'ensure_default_top_velocity', secure=secure)
 
@@ -1162,7 +1177,7 @@ class MultiPumpController(object):
 
         """
         if flowrate_out is not None:
-            self.apply_command_to_pumps(pump_names, 'set_top_velocity', flowrate_out, secure=secure)
+            self.apply_command_to_pumps(pump_names, 'set_top_flowrate', flowrate_out, secure=secure)
         else:
             self.apply_command_to_pumps(pump_names, 'ensure_default_top_velocity', secure=secure)
 
