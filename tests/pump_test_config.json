@@ -7,7 +7,7 @@
   "default": {
     "volume": 5,
     "micro_step_mode": 2,
-    "top_velocity":10000
+    "top_flowrate": 2
   },
   "groups": {
     "oils": ["oil1", "oil2", "oil3", "oil4"]
