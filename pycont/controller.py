@@ -55,7 +55,7 @@ MICRO_STEP_MODE_2 = 2
 N_STEP_MICRO_STEP_MODE_0 = 3000
 N_STEP_MICRO_STEP_MODE_2 = 24000
 
-# The maximum top velocities
+# The maximum top velocities in increments/second
 MAX_TOP_VELOCITY_MICRO_STEP_MODE_0 = 6000
 MAX_TOP_VELOCITY_MICRO_STEP_MODE_2 = 48000
 
@@ -177,7 +177,6 @@ class C3000Controller(LabDevice):
         self.total_volume = float(total_volume)  # in ml (float)
         self.steps_per_ml = int(self.number_of_steps / self.total_volume)
 
-        self._default_top_velocity = None
         self.default_top_velocity = top_velocity
 
     @classmethod
