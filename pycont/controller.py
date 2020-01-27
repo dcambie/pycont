@@ -73,7 +73,7 @@ MAX_TOP_VELOCITY_MICRO_STEP_MODE_2 = 48000
 #: default Input/Output (I/O) Baudrate
 DEFAULT_IO_BAUDRATE = 9600
 #: Default timeout for I/O operations
-DEFAULT_IO_TIMEOUT = 1
+DEFAULT_IO_TIMEOUT = 0.0001
 
 #: Specifies a time to wait
 WAIT_SLEEP_TIME = 0.1
@@ -194,11 +194,11 @@ class PumpIO(LabDevice):
         Raises:
             PumpIOTimeOutError: If the response time is greater than the timeout threshold.
         """
-        self.send_message(packet.to_string(), prepare=False)
+        self.send_message(packet.to_string(), check=False)
         return self.receive_reply(parse=True)
 
     def parse_reply(self, reply):
-        last_reply = reply.split("\r\n")[-1]
+        last_reply = reply.body
         return last_reply
 
 
@@ -1164,6 +1164,8 @@ class MultiPumpController(object):
         self.logger = create_logger(self.__class__.__name__)
         self.pumps = {}
         self._io = []
+
+        self.logger.warning("USING SL2-BASED VERSION!")
 
         # Sets groups and default configs if provided in the config dictionary
         self.groups = setup_config['groups'] if 'groups' in setup_config else {}
