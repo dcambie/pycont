@@ -1046,8 +1046,9 @@ class C3000Controller(object):
 
             self.wait_until_idle()
 
-        self.logger.debug("[PUMP {}] Too many failed attempts in set_valve_position!".format(self.name))
-        raise ControllerRepeatedError('Repeated Error from pump {}'.format(self.name))
+        self.logger.warning("[PUMP {}] Too many failed attempts in set_valve_position!".format(self.name))
+        raise ControllerRepeatedError(f"Repeated Error from pump {self.name}! Cannot set valve to position "
+                                      f"<{valve_position}> [Currently {self.get_valve_position()}]")
 
     def set_eeprom_config(self, operand_value):
         """
