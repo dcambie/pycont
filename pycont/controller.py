@@ -73,7 +73,7 @@ MAX_TOP_VELOCITY_MICRO_STEP_MODE_2 = 48000
 #: default Input/Output (I/O) Baudrate
 DEFAULT_IO_BAUDRATE = 9600
 #: Default timeout for I/O operations
-DEFAULT_IO_TIMEOUT = 0.0001
+DEFAULT_IO_TIMEOUT = 0.01
 
 #: Specifies a time to wait
 WAIT_SLEEP_TIME = 0.1
@@ -110,6 +110,7 @@ class PumpIO(LabDevice):
                 "port": tcipip_port
             }
             super().__init__(connection_mode="tcpip", connection_parameters=parameters)
+
         else:
             # Serial
             parameters = {
