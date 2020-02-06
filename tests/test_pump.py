@@ -3,7 +3,7 @@ import numpy as np
 import logging
 
 log = logging.getLogger("SerialLabware")
-log = logging.getLogger("pycont")
+log2 = logging.getLogger("pycont")
 log.setLevel(logging.DEBUG)
 ch = logging.StreamHandler()
 formatter = logging.Formatter("%(asctime)s - %(name)s::%(levelname)s -- %(message)s")
@@ -24,6 +24,7 @@ for _ in range(10):
 
 t = np.array(t)
 print(f"Initialization time (min/max/avg+-st.dev.) -  {min(t)}/{max(t)}/{np.average(t)}+-{np.std(t)}")
+del controller
 
 ### Pycont optimizied settings w/ readline implemented in SL2 ###
 

@@ -117,7 +117,7 @@ class PumpIO(LabDevice):
                 "baudrate": baudrate,
                 "transmit_timeout": 0,
                 "receive_timeout": timeout,
-                "receiving_interval": 0.01,
+                "receiving_interval": 0.001,
                 "port": port,
                 "command_delay": 0,
                 "readline": True

@@ -1,8 +1,8 @@
 {
   "io": {
-      "port": "/dev/ttyUSB0",
+      "port": "COM5",
       "baudrate": 38400,
-      "timeout": 1
+      "timeout": 0.01
   },
   "default": {
     "volume": 5,
