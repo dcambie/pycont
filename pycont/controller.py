@@ -171,6 +171,9 @@ class PumpIO(LabDevice):
         with open(io_configfile) as f:
             return cls.from_config(json.load(f))
 
+    def __del__(self):
+        super().disconnect()
+
     def initialise_device(self):
         raise NotImplementedError
 
