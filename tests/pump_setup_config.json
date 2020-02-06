@@ -1,14 +1,14 @@
 {
   "io": {
       "port": "/dev/ttyUSB0",
-      "baudrate": 9600,
+      "baudrate": 38400,
       "timeout": 1
   },
   "default": {
     "volume": 5,
     "micro_step_mode": 2,
     "top_velocity": 24000,
-    "initialize_valve_position": "I"
+    "initialize_valve_position": "1"
   },
   "groups": {
     "chemicals": ["acetone", "water"]
@@ -16,10 +16,6 @@
   "pumps": {
       "acetone": {
         "switch": "0"
-      },
-      "water": {
-          "switch": "1",
-          "top_velocity": 12000
       }
   }
 }
