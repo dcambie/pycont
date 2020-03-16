@@ -35,6 +35,9 @@ class DTInstructionPacket(object):
     def to_string(self):
         return bytes(self.to_array()).decode("utf-8")
 
+    def to_SL2_command(self):
+        return {"name": self.to_string(), "reply": {"type": str}}
+
 
 class DTCommand(object):
 

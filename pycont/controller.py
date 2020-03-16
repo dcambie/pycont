@@ -199,10 +199,9 @@ class PumpIO(LabDevice):
         Raises:
             PumpIOTimeOutError: If the response time is greater than the timeout threshold.
         """
-        self.send_message(packet.to_string(), check=False)
-        return self.receive_reply(parse=True)
+        return self.send(packet.to_SL2_command())
 
-    def parse_reply(self, reply):
+    def parse_reply(self, reply, cmd):
         last_reply = reply.body
         return last_reply
 
