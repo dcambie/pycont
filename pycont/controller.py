@@ -115,12 +115,11 @@ class PumpIO(LabDevice):
             # Serial
             parameters = {
                 "baudrate": baudrate,
+                "port": port,
                 "transmit_timeout": 0,
                 "receive_timeout": timeout,
                 "receiving_interval": 0.001,
-                "port": port,
-                "command_delay": 0,
-                "readline": True
+                "command_delay": 0
             }
             super().__init__(connection_mode="serial", connection_parameters=parameters)
 
@@ -199,7 +198,7 @@ class PumpIO(LabDevice):
         Raises:
             PumpIOTimeOutError: If the response time is greater than the timeout threshold.
         """
-        return self.send(packet.to_SL2_command())
+        return self.send(packet.to_SL2_command(), prepare=True)
 
     def parse_reply(self, reply, cmd):
         last_reply = reply.body
@@ -1169,8 +1168,6 @@ class MultiPumpController(object):
         self.logger = create_logger(self.__class__.__name__)
         self.pumps = {}
         self._io = []
-
-        self.logger.warning("USING SL2-BASED VERSION!")
 
         # Sets groups and default configs if provided in the config dictionary
         self.groups = setup_config['groups'] if 'groups' in setup_config else {}
